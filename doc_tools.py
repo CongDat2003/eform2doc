@@ -21,6 +21,9 @@ from eform_parser import Field, GRID_TYPES, MULTI_CHECKBOX_TYPES
 
 PLACEHOLDER_RE = re.compile(r"\$\{[^}]+\}")
 
+# Placeholder do hệ thống sinh, không ứng với field nào trong eform
+SYSTEM_PLACEHOLDERS = {"${#index}"}
+
 NAVY = RGBColor(0x0D, 0x47, 0xA1)
 GREY = RGBColor(0x54, 0x6E, 0x7A)
 SHADE_INPUT = "F5F7FA"
@@ -57,7 +60,7 @@ def scan_placeholders(docx_path: str) -> Set[str]:
         for part in (section.header, section.footer):
             for p in part.paragraphs:
                 found.update(PLACEHOLDER_RE.findall(p.text))
-    return found
+    return found - SYSTEM_PLACEHOLDERS
 
 
 # ---------------------------------------------------------------- helpers
@@ -167,14 +170,7 @@ def generate_template(fields: List[Field], out_path: str,
         if f.type in GRID_TYPES:
             _add_heading(doc, f.label or f.key)
             subs = subfields_by_grid.get(f.key, [])
-            if subs:
-                note = doc.add_paragraph()
-                r = note.add_run("Cột: " + ", ".join(s.key for s in subs))
-                r.italic = True
-                r.font.size = Pt(9)
-                r.font.color.rgb = GREY
-            ph = doc.add_paragraph()
-            ph.add_run(f.placeholder).font.size = Pt(11)
+            _add_grid_table(doc, f, subs)
             doc.add_paragraph()
             continue
 
@@ -225,3 +221,35 @@ def inject_placeholders(docx_path: str, out_path: str,
 
     doc.save(out_path)
     return count
+
+
+def _add_grid_table(doc, grid, subs):
+    """
+    Sinh bảng cho datagrid/editgrid:
+      - Dòng tiêu đề: STT + nhãn từng cột
+      - Dòng mẫu   : ${Grid#table}${#index} + ${Grid.SubKey} cho từng cột
+    """
+    n_cols = len(subs) + 1
+    table = doc.add_table(rows=2, cols=n_cols)
+    table.style = "Table Grid"
+
+    # Tiêu đề
+    head = table.rows[0].cells
+    _set_text(head[0], "STT", bold=True, size=11,
+              align=WD_ALIGN_PARAGRAPH.CENTER)
+    _shade(head[0], SHADE_LABEL)
+    for i, s in enumerate(subs, start=1):
+        _set_text(head[i], s.label or s.key, bold=True, size=11,
+                  align=WD_ALIGN_PARAGRAPH.CENTER)
+        _shade(head[i], SHADE_LABEL)
+
+    # Dòng mẫu
+    body = table.rows[1].cells
+    _set_text(body[0], "${%s#table}${#index}" % grid.key, size=10,
+              align=WD_ALIGN_PARAGRAPH.CENTER)
+    _shade(body[0], SHADE_INPUT)
+    for i, s in enumerate(subs, start=1):
+        _set_text(body[i], "${%s.%s}" % (grid.key, s.key), size=10)
+        _shade(body[i], SHADE_INPUT)
+
+    return table

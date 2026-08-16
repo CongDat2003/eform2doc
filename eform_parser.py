@@ -43,6 +43,8 @@ class Field:
     @property
     def placeholder(self) -> str:
         """Cú pháp placeholder tương ứng trong DOC template."""
+        if self.parent:
+            return "${%s.%s}" % (self.parent, self.key)
         if self.type in GRID_TYPES:
             return "${%s#table}" % self.key
         if self.type == "checkbox":
@@ -169,13 +171,21 @@ def parse_eform_file(path: str) -> List[Field]:
         return parse_eform(json.load(fh))
 
 
-def all_placeholders(fields: List[Field]) -> List[str]:
-    """Tập hợp mọi placeholder mà DOC template cần có."""
+def all_placeholders(fields: List[Field], with_columns: bool = True) -> List[str]:
+    """
+    Tập hợp mọi placeholder mà DOC template cần có.
+
+    with_columns=True (mặc định): bảng sinh ra
+        ${Grid#table}  + mỗi cột một ${Grid.SubKey}
+    with_columns=False: bảng chỉ sinh ${Grid#table}
+    """
     result = []
     grid_keys = {f.key for f in fields if f.type in GRID_TYPES}
     for f in fields:
         if f.parent in grid_keys:
-            continue  # subfield nằm trong ${grid#table}, không có placeholder riêng
+            if with_columns:
+                result.append("${%s.%s}" % (f.parent, f.key))
+            continue
         if f.type in MULTI_CHECKBOX_TYPES:
             result.extend(ph for _, _, ph in f.option_placeholders())
         else:
